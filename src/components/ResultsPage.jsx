@@ -17,37 +17,40 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
+import { ScannerAPI } from '@/lib/api';
 
-export function ResultsPage({ onBack, scannedUrls }) {
+export function ResultsPage({ onBack, scannedUrls, scanResults = [], scanId = null }) {
   const [filter, setFilter] = useState('all');
   const [results, setResults] = useState([]);
   const { toast } = useToast();
 
   useEffect(() => {
-    // Generate mock results based on scanned URLs
-    const mockResults = scannedUrls.map((url, index) => {
-      const riskLevels = ['high', 'medium', 'low', 'clean'];
-      const riskLevel = riskLevels[Math.floor(Math.random() * riskLevels.length)];
-      
-      const threats = {
-        high: ['Cookie Stuffing Detected', 'Suspicious Redirect Chain', 'Malicious Affiliate Code'],
-        medium: ['Unusual Tracking Parameters', 'Potential Click Fraud', 'Suspicious Domain'],
-        low: ['Minor Security Warning', 'Outdated SSL Certificate'],
-        clean: []
-      };
-
-      return {
+    if (scanResults && scanResults.length > 0) {
+      // Use real scan results from the API
+      const processedResults = scanResults.map((result, index) => ({
+        id: index + 1,
+        url: result.url,
+        riskLevel: result.risk_level,
+        threats: result.threats || [],
+        scanTime: new Date().toLocaleTimeString(),
+        screenshot: `screenshot-${index + 1}.jpg`,
+        rawDetections: result.raw_detections || []
+      }));
+      setResults(processedResults);
+    } else {
+      // Fallback: Generate basic results from URLs
+      const fallbackResults = scannedUrls.map((url, index) => ({
         id: index + 1,
         url,
-        riskLevel,
-        threats: threats[riskLevel],
+        riskLevel: 'clean',
+        threats: [],
         scanTime: new Date().toLocaleTimeString(),
-        screenshot: `screenshot-${index + 1}.jpg`
-      };
-    });
-
-    setResults(mockResults);
-  }, [scannedUrls]);
+        screenshot: `screenshot-${index + 1}.jpg`,
+        rawDetections: []
+      }));
+      setResults(fallbackResults);
+    }
+  }, [scannedUrls, scanResults]);
 
   const filteredResults = results.filter(result => {
     if (filter === 'all') return true;
@@ -83,29 +86,67 @@ export function ResultsPage({ onBack, scannedUrls }) {
     }
   };
 
-  const downloadCSV = () => {
-    const csvContent = [
-      ['URL', 'Risk Level', 'Threats', 'Scan Time'],
-      ...results.map(result => [
-        result.url,
-        result.riskLevel,
-        result.threats.join('; '),
-        result.scanTime
-      ])
-    ].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+  const downloadCSV = async () => {
+    try {
+      if (scanId) {
+        try {
+          // Try to download the real CSV report from the API
+          await ScannerAPI.downloadCSV(scanId);
+          toast({
+            title: "Report downloaded!",
+            description: "Your security scan report has been saved as CSV.",
+          });
+          return;
+        } catch (apiError) {
+          console.warn('API CSV download failed, falling back to client-side generation:', apiError);
+          // Fall through to client-side generation
+        }
+      }
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'cookie_stuffing_report.csv';
-    a.click();
-    URL.revokeObjectURL(url);
+      // Fallback to client-side CSV generation
+      const csvContent = [
+        ['type', 'url', 'detail', 'origin', 'referer'],
+        ...results.flatMap(result => {
+          if (result.threats && result.threats.length > 0) {
+            return result.threats.map(threat => [
+              'threat',
+              result.url,
+              threat,
+              result.url,
+              'scan'
+            ]);
+          } else {
+            return [[
+              'scan',
+              result.url,
+              'No threats detected',
+              result.url,
+              'clean'
+            ]];
+          }
+        })
+      ].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
 
-    toast({
-      title: "Report downloaded!",
-      description: "Your security scan report has been saved as CSV.",
-    });
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'cookie_stuffing_report.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+
+      toast({
+        title: "Report downloaded!",
+        description: "Your security scan report has been saved as CSV.",
+      });
+    } catch (error) {
+      console.error('Error downloading CSV:', error);
+      toast({
+        title: "Download failed",
+        description: "Unable to download the CSV report. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const viewScreenshot = (screenshot) => {
@@ -163,6 +204,30 @@ export function ResultsPage({ onBack, scannedUrls }) {
             <p className="text-lg text-muted-foreground">
               Comprehensive security analysis of {results.length} URLs
             </p>
+            {scanResults && scanResults.length > 0 && scanResults[0].scanner_type && (
+              <div className="mt-4">
+                <Badge className={
+                  scanResults[0].scanner_type === 'real'
+                    ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                    : scanResults[0].scanner_type === 'python'
+                    ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                    : scanResults[0].scanner_type === 'fallback'
+                    ? 'bg-orange-500/20 text-orange-400 border-orange-500/30'
+                    : 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+                }>
+                  {scanResults[0].scanner_type === 'real' && '🎭 Real-Time Playwright Scanner'}
+                  {scanResults[0].scanner_type === 'python' && '🐍 Python Scanner'}
+                  {scanResults[0].scanner_type === 'fallback' && '⚡ JavaScript Fallback Scanner'}
+                  {scanResults[0].scanner_type === 'mock' && '🎲 Mock Scanner'}
+                  {!scanResults[0].scanner_type && '🔍 Security Scanner'}
+                </Badge>
+                {scanResults[0].scanner_status && (
+                  <p className="text-sm text-muted-foreground mt-2">
+                    {scanResults[0].scanner_status}
+                  </p>
+                )}
+              </div>
+            )}
           </motion.div>
 
           {/* Summary Cards */}

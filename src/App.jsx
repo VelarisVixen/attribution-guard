@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { WelcomePage } from '@/components/WelcomePage';
@@ -10,6 +9,8 @@ import { Toaster } from '@/components/ui/toaster';
 function App() {
   const [currentPage, setCurrentPage] = useState('welcome');
   const [scannedUrls, setScannedUrls] = useState([]);
+  const [scanResults, setScanResults] = useState([]);
+  const [scanId, setScanId] = useState(null);
   const [isDark, setIsDark] = useState(true);
 
   useEffect(() => {
@@ -27,8 +28,10 @@ function App() {
     setCurrentPage('upload');
   };
 
-  const handleStartScan = (urls) => {
+  const handleStartScan = (urls, results = [], scanIdParam = null) => {
     setScannedUrls(urls);
+    setScanResults(results);
+    setScanId(scanIdParam);
     setCurrentPage('results');
   };
 
@@ -95,9 +98,11 @@ function App() {
             variants={pageVariants}
             transition={pageTransition}
           >
-            <ResultsPage 
+            <ResultsPage
               onBack={handleBackToUpload}
               scannedUrls={scannedUrls}
+              scanResults={scanResults}
+              scanId={scanId}
             />
           </motion.div>
         )}

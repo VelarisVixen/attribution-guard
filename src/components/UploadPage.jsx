@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/components/ui/use-toast';
+import { ScannerAPI } from '@/lib/api';
 
 export function UploadPage({ onBack, onStartScan }) {
   const [urls, setUrls] = useState('');
@@ -36,9 +37,9 @@ export function UploadPage({ onBack, onStartScan }) {
     }
   };
 
-  const handleStartScan = () => {
+  const handleStartScan = async () => {
     const urlList = urls.trim().split('\n').filter(url => url.trim());
-    
+
     if (urlList.length === 0) {
       toast({
         title: "No URLs provided",
@@ -54,11 +55,46 @@ export function UploadPage({ onBack, onStartScan }) {
       description: `Analyzing ${urlList.length} URLs for security threats.`,
     });
 
-    // Simulate scan process
-    setTimeout(() => {
+    try {
+      // Start the real scan
+      const scanResponse = await ScannerAPI.startScan(urlList);
+
+      if (!scanResponse.success) {
+        throw new Error(scanResponse.error || 'Failed to start scan');
+      }
+
+      // Poll for completion and pass results to parent
+      await ScannerAPI.pollScanUntilComplete(
+        scanResponse.scanId,
+        (status) => {
+          // Update progress if needed
+          console.log('Scan progress:', status);
+        }
+      );
+
+      // Get final results
+      const finalStatus = await ScannerAPI.getScanStatus(scanResponse.scanId);
+
       setIsScanning(false);
-      onStartScan(urlList);
-    }, 2000);
+
+      toast({
+        title: "Scan completed!",
+        description: `Successfully analyzed ${urlList.length} URLs.`,
+      });
+
+      // Pass results to parent component
+      onStartScan(urlList, finalStatus.results, scanResponse.scanId);
+
+    } catch (error) {
+      setIsScanning(false);
+      console.error('Scan error:', error);
+
+      toast({
+        title: "Scan failed",
+        description: error.message || "An error occurred during scanning.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
